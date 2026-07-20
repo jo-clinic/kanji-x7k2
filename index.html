@@ -131,6 +131,7 @@ button{font-family:inherit; border:none; border-radius:14px; cursor:pointer; tou
       <div id="pad-wrap">
         <canvas id="pad"></canvas>
         <div id="pad-guide"></div>
+        <canvas id="pad-live" style="position:absolute;top:0;left:0;pointer-events:none;"></canvas>
       </div>
       <div class="pad-btns">
         <button class="btn-sub" onclick="undoStroke()">↩ 一画もどす</button>
@@ -301,49 +302,63 @@ function setInputMode(keyboard){
 }
 
 // ---------- 手書きパッド ----------
-let pad, ctx, strokes=[], cur=null, padW=0, padH=0;
+// 確定した画=下のcanvas(pad)、書いている最中の画=上のcanvas(pad-live)に分離。
+// 描画はrequestAnimationFrameで1フレーム1回。Pencilの予測点も先に描いて体感遅延を減らす。
+let pad, ctx, live, lctx, strokes=[], cur=null, predicted=[], rafPending=false, padW=0, padH=0, padRect=null;
+function styleCtx(c){ c.lineWidth=6; c.lineCap='round'; c.lineJoin='round'; c.strokeStyle='#111'; }
 function setupPad(nChars){
-  pad = document.getElementById('pad');
+  pad = document.getElementById('pad'); live = document.getElementById('pad-live');
   const wrap = document.getElementById('pad-wrap');
   padW = wrap.clientWidth; padH = Math.min(430, Math.max(240, Math.floor(window.innerHeight*0.42)));
-  pad.width = padW*2; pad.height = padH*2; // retina
-  pad.style.height = padH+'px';
-  ctx = pad.getContext('2d'); ctx.scale(2,2);
-  ctx.lineWidth=6; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#111';
-  strokes=[]; redraw();
+  for(const c of [pad, live]){ c.width=padW*2; c.height=padH*2; c.style.width=padW+'px'; c.style.height=padH+'px'; }
+  ctx = pad.getContext('2d'); ctx.scale(2,2); styleCtx(ctx);
+  lctx = live.getContext('2d'); lctx.scale(2,2); styleCtx(lctx);
+  strokes=[]; cur=null; predicted=[]; redraw(); lctx.clearRect(0,0,padW,padH);
   const g = document.getElementById('pad-guide');
   g.innerHTML=''; for(let i=0;i<nChars;i++){ const d=document.createElement('div'); d.className='box'; g.appendChild(d); }
   if(!pad._bound){
     pad.addEventListener('pointerdown', e=>{ e.preventDefault(); pad.setPointerCapture(e.pointerId);
-      cur={x:[],y:[],t:[]};
-      const p=addPt(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x,p.y); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(p.x,p.y); });
+      padRect = pad.getBoundingClientRect();
+      cur={x:[],y:[],t:[]}; addPt(e); predicted=[]; scheduleLive(); });
     pad.addEventListener('pointermove', e=>{ if(!cur) return;
-      // Apple Pencil等の高頻度サンプルをまとめて取得し、増分だけ描く（全再描画しない）
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-      let p=null;
-      for(const ev of evs){ p=addPt(ev); ctx.lineTo(p.x,p.y); }
-      ctx.stroke(); ctx.beginPath(); ctx.moveTo(p.x,p.y); });
-    pad.addEventListener('pointerup', e=>{ if(cur){ strokes.push(cur); cur=null; } });
-    pad.addEventListener('pointercancel', e=>{ if(cur){ strokes.push(cur); cur=null; } });
+      for(const ev of evs) addPt(ev);
+      predicted = e.getPredictedEvents ? e.getPredictedEvents().map(toPt) : [];
+      scheduleLive(); });
+    const finish = e=>{ if(!cur) return;
+      commitStroke(cur); strokes.push(cur); cur=null; predicted=[];
+      lctx.clearRect(0,0,padW,padH); };
+    pad.addEventListener('pointerup', finish);
+    pad.addEventListener('pointercancel', finish);
     pad._bound=true;
   }
 }
-function addPt(e){
-  const r = pad.getBoundingClientRect();
-  const x=Math.round(e.clientX-r.left), y=Math.round(e.clientY-r.top);
-  cur.x.push(x); cur.y.push(y); cur.t.push(Date.now());
-  return {x,y};
+function toPt(e){ return {x:Math.round(e.clientX-padRect.left), y:Math.round(e.clientY-padRect.top)}; }
+function addPt(e){ const p=toPt(e); cur.x.push(p.x); cur.y.push(p.y); cur.t.push(Date.now()); return p; }
+function scheduleLive(){
+  if(rafPending) return; rafPending=true;
+  requestAnimationFrame(()=>{ rafPending=false; drawLive(); });
 }
-function redraw(extra){
+function drawLive(){
+  lctx.clearRect(0,0,padW,padH);
+  if(!cur || cur.x.length===0) return;
+  lctx.beginPath(); lctx.moveTo(cur.x[0],cur.y[0]);
+  for(let i=1;i<cur.x.length;i++) lctx.lineTo(cur.x[i],cur.y[i]);
+  for(const p of predicted) lctx.lineTo(p.x,p.y);  // 予測点で先回り描画
+  lctx.stroke();
+}
+function commitStroke(s){
+  ctx.beginPath(); ctx.moveTo(s.x[0],s.y[0]);
+  if(s.x.length===1) ctx.lineTo(s.x[0],s.y[0]);
+  for(let i=1;i<s.x.length;i++) ctx.lineTo(s.x[i],s.y[i]);
+  ctx.stroke();
+}
+function redraw(){
   ctx.clearRect(0,0,padW,padH);
-  const all = extra? [...strokes, extra] : strokes;
-  for(const s of all){ ctx.beginPath();
-    for(let i=0;i<s.x.length;i++){ i? ctx.lineTo(s.x[i],s.y[i]) : ctx.moveTo(s.x[i],s.y[i]); }
-    ctx.stroke(); }
+  for(const s of strokes) commitStroke(s);
 }
 function undoStroke(){ strokes.pop(); redraw(); }
-function clearPad(){ strokes=[]; redraw(); }
+function clearPad(){ strokes=[]; cur=null; redraw(); if(lctx) lctx.clearRect(0,0,padW,padH); }
 
 // ---------- 判定 ----------
 async function recognize(){
