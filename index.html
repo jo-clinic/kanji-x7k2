@@ -6,6 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="robots" content="noindex, nofollow">
 <title>漢字の征服 トレーニング</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@600&display=swap" rel="stylesheet">
 <style>
 :root{
   --blue:#2b6cb0; --blue-d:#1a365d; --bg:#f0f6fc; --card:#ffffff;
@@ -55,12 +58,17 @@ button{font-family:inherit; border:none; border-radius:14px; cursor:pointer; tou
 #pad-guide .box span{color:#eef3f9; font-size:60px; font-weight:bold;}
 .pad-btns{display:flex; gap:10px; margin-top:10px;}
 #yomi-input{width:100%; font-size:26px; padding:12px; border:2px solid var(--green); border-radius:12px; margin-top:10px;}
-#judge-mark{font-size:80px; text-align:center; font-weight:bold; margin:4px 0;}
+#judge-mark{font-size:64px; text-align:center; font-weight:bold; margin:2px 0;}
 #judge-mark.ok{color:var(--red);}
 #judge-mark.ng{color:#1c7ed6;}
-#judge-answer{text-align:center; font-size:56px; font-weight:bold; letter-spacing:6px; margin:6px 0; color:var(--ink);}
-#judge-note{text-align:center; color:#666; font-size:14px; margin-bottom:10px;}
-#judge-user{text-align:center; font-size:15px; color:#888;}
+#judge-note{text-align:center; color:#666; font-size:14px; margin-bottom:8px;}
+.cmp-block{border-top:1px solid #eee; padding:8px 0 6px; text-align:center;}
+.cmp-label{font-size:13px; color:#8aa; font-weight:bold; margin-bottom:2px;}
+#cmp-ink{max-width:100%; max-height:150px; border:1.5px dashed #c9d8ea; border-radius:10px; background:#fff;}
+.cmp-text{font-size:52px; line-height:1.3; letter-spacing:6px; min-height:60px;
+  font-family:"YuKyokasho","YuKyokasho Yoko","UD デジタル 教科書体 N-R","UD Digi Kyokasho N-R","Klee One","Hiragino Mincho ProN",serif;
+  font-weight:600;}
+#cmp-answer{color:var(--red);}
 .judge-btns{display:flex; gap:10px; margin-top:14px;}
 .judge-btns button{flex:1; padding:14px; font-size:17px; font-weight:bold;}
 #result-score{font-size:44px; font-weight:bold; text-align:center; color:var(--blue-d); margin:8px 0;}
@@ -159,8 +167,18 @@ button{font-family:inherit; border:none; border-radius:14px; cursor:pointer; tou
   <div class="card">
     <div id="judge-mark"></div>
     <div id="judge-note"></div>
-    <div id="judge-answer"></div>
-    <div id="judge-user"></div>
+    <div class="cmp-block" id="cmp-ink-block">
+      <div class="cmp-label">きみの字</div>
+      <img id="cmp-ink" alt="手書きの答え">
+    </div>
+    <div class="cmp-block">
+      <div class="cmp-label" id="cmp-recog-label">よみとった字</div>
+      <div id="cmp-recog" class="cmp-text"></div>
+    </div>
+    <div class="cmp-block">
+      <div class="cmp-label">正かい</div>
+      <div id="cmp-answer" class="cmp-text"></div>
+    </div>
     <div class="judge-btns" id="judge-confirm" style="display:none">
       <button class="btn-green" onclick="confirmJudge(true)">あってた ○</button>
       <button class="btn-red" onclick="confirmJudge(false)">まちがえた ×</button>
@@ -399,10 +417,12 @@ async function submitAnswer(){
   if(q.qtype==='読み' && kbShown){
     const v = document.getElementById('yomi-input').value.trim();
     if(!v) return;
+    S.lastInk = null;
     judge(normalizeAns(v)===normalizeAns(q.answer), v, true);
     return;
   }
   if(strokes.length===0) return;
+  S.lastInk = pad.toDataURL('image/png');
   document.getElementById('loading').style.display='flex';
   let cands=[], failed=false;
   try{ cands = await recognize(); }catch(e){ failed=true; }
@@ -424,8 +444,20 @@ function judge(correct, userAns, auto){
   document.getElementById('q-progress2').textContent = (S.idx+1)+' / '+S.quiz.length+' 問目';
   const mark = document.getElementById('judge-mark');
   const note = document.getElementById('judge-note');
-  document.getElementById('judge-answer').textContent = q.answer;
-  document.getElementById('judge-user').textContent = auto&&correct ? '' : 'きみの答え: '+userAns;
+  // 3段くらべ: きみの字（手書き画像）→ よみとった字 → 正かい
+  const inkBlock = document.getElementById('cmp-ink-block');
+  if(S.lastInk){
+    inkBlock.style.display='block';
+    document.getElementById('cmp-ink').src = S.lastInk;
+    document.getElementById('cmp-recog-label').textContent = 'よみとった字';
+  } else {
+    inkBlock.style.display='none';
+    document.getElementById('cmp-recog-label').textContent = 'きみの答え';
+  }
+  const recogEl = document.getElementById('cmp-recog');
+  recogEl.textContent = userAns;
+  recogEl.style.fontSize = userAns.startsWith('（') ? '16px' : '';  // 状態メッセージは小さく
+  document.getElementById('cmp-answer').textContent = q.answer;
   if(correct){
     mark.textContent='○'; mark.className='ok';
     note.textContent='せいかい！';
@@ -434,7 +466,7 @@ function judge(correct, userAns, auto){
     finalizeResult(true, true);
   } else {
     mark.textContent='?'; mark.className='ng';
-    note.textContent='正かいとくらべてみよう。自分の字と同じならば「あってた○」を押してね';
+    note.textContent='きみの字と正かいをくらべてみよう。同じなら「あってた○」を押してね';
     document.getElementById('judge-confirm').style.display='flex';
     document.getElementById('judge-next').style.display='none';
   }
