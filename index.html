@@ -339,12 +339,24 @@ function scheduleLive(){
   if(rafPending) return; rafPending=true;
   requestAnimationFrame(()=>{ rafPending=false; drawLive(); });
 }
+function manualPredict(){
+  // Safariが予測点をくれない場合、直近の速度から自前で先読み（ライブ表示のみ・確定インクには使わない）
+  const n=cur.x.length; if(n<3) return [];
+  const i1=n-1, i0=Math.max(0,n-4);
+  const dt=(cur.t[i1]-cur.t[i0])||1;
+  let dx=(cur.x[i1]-cur.x[i0])/dt*28, dy=(cur.y[i1]-cur.y[i0])/dt*28; // 約28ms先
+  const d=Math.hypot(dx,dy), MAX=40;
+  if(d>MAX){ dx*=MAX/d; dy*=MAX/d; }
+  if(d<2) return [];
+  return [{x:cur.x[i1]+dx*0.5,y:cur.y[i1]+dy*0.5},{x:cur.x[i1]+dx,y:cur.y[i1]+dy}];
+}
 function drawLive(){
   lctx.clearRect(0,0,padW,padH);
   if(!cur || cur.x.length===0) return;
   lctx.beginPath(); lctx.moveTo(cur.x[0],cur.y[0]);
   for(let i=1;i<cur.x.length;i++) lctx.lineTo(cur.x[i],cur.y[i]);
-  for(const p of predicted) lctx.lineTo(p.x,p.y);  // 予測点で先回り描画
+  const pred = predicted.length? predicted : manualPredict();
+  for(const p of pred) lctx.lineTo(p.x,p.y);  // 予測点で先回り描画
   lctx.stroke();
 }
 function commitStroke(s){
