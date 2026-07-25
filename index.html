@@ -81,6 +81,8 @@ button{font-family:inherit; border:none; border-radius:14px; cursor:pointer; tou
 .hint{color:#888; font-size:13px;}
 #pad-wrap{position:relative; margin-top:10px;}
 #pad{background:#fff; border:2px solid var(--blue); border-radius:12px; width:100%; touch-action:none; display:block;}
+#ipad{background:#fff; border:2px solid var(--green); border-radius:12px; width:100%; touch-action:none; display:block;}
+#pad-wrap, #pad-wrap-inp, #hpad-wrap{touch-action:none;}
 #pad-guide{position:absolute; top:0; left:0; right:0; bottom:0; pointer-events:none; display:flex;}
 #pad-guide .box{flex:1; border-right:2px dashed #c9d8ea; display:flex; align-items:center; justify-content:center;}
 #pad-guide .box:last-child{border-right:none;}
@@ -869,6 +871,10 @@ function makePad(canvasId, liveId, wrapEl){
     P.lctx=P.live.getContext('2d'); P.lctx.scale(2,2); P.styleCtx(P.lctx);
     P.strokes=[]; P.cur=null; P.predicted=[]; P.redraw(); P.lctx.clearRect(0,0,P.W,P.H);
     if(!P.pad._bound){
+      // iPad Safariの「引っ張って更新」やスクロールを完全に止める（passive:false必須）
+      for(const ev of ['touchstart','touchmove','touchend']){
+        P.pad.addEventListener(ev, e=>e.preventDefault(), {passive:false});
+      }
       P.pad.addEventListener('pointerdown', e=>{ e.preventDefault();
         if(e.pointerType==='pen' && e.pressure===0) return;
         P.pad.setPointerCapture(e.pointerId);
